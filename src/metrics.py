@@ -25,6 +25,7 @@
 import os
 import json
 import re
+import time
 from typing import Dict, Any
 from dotenv import load_dotenv
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -38,29 +39,65 @@ def get_evaluator_llm():
     Returns the LLM configured for evaluation.
     Supports OpenAI and Google Gemini based on .env
     """
-    return get_eval_llm()
+    return get_eval_llm(temperature=0)
 
 
-def extract_json_from_response(response_text: str) -> Dict[str, Any]:
+def invoke_with_retry(llm: Any, messages: list, max_retries: int = 5, retry_delay: float = 60.0) -> Any:
+    """
+    Invokes LLM with exponential backoff retry for 503/429 transient errors.
+
+    Args:
+        llm: LLM instance to invoke
+        messages: List of messages to send
+        max_retries: Maximum number of retry attempts
+        retry_delay: Base delay in seconds between retries (multiplied by attempt number)
+
+    Returns:
+        LLM response object
+
+    Raises:
+        Exception: If all retries are exhausted or error is non-retryable
+    """
+    for attempt in range(1, max_retries + 1):
+        try:
+            return llm.invoke(messages)
+        except Exception as e:
+            is_retryable = any(code in str(e) for code in ["503", "429", "UNAVAILABLE", "Resource has been exhausted"])
+            if is_retryable and attempt < max_retries:
+                wait = retry_delay * attempt
+                print(f"   Attempt {attempt}/{max_retries} failed (retryable). Waiting {wait:.0f}s before retry...")
+                time.sleep(wait)
+            else:
+                raise
+
+
+def extract_json_from_response(response_text) -> Dict[str, Any]:
     """
     Extracts JSON from an LLM response that may contain additional text.
+    Handles both str and list[dict] content formats (langchain-google-genai 4.x).
     """
+    if isinstance(response_text, list):
+        # Multi-part response: concatenate all text parts
+        response_text = "".join(
+            part.get("text", "") if isinstance(part, dict) else str(part)
+            for part in response_text
+        )
+
+    if not isinstance(response_text, str):
+        response_text = str(response_text)
+
     try:
-        # Try to parse directly
         return json.loads(response_text)
     except json.JSONDecodeError:
-        # Try to find JSON in the middle of the text
         start = response_text.find('{')
         end = response_text.rfind('}') + 1
 
         if start != -1 and end > start:
             try:
-                json_str = response_text[start:end]
-                return json.loads(json_str)
+                return json.loads(response_text[start:end])
             except json.JSONDecodeError:
                 pass
 
-        # If unable to extract, return default values
         print(f"Could not extract JSON from response: {response_text[:200]}...")
         return {"score": 0.0, "reasoning": "Error processing response"}
 
@@ -129,7 +166,7 @@ def evaluate_f1_score(question: str, answer: str, reference: str) -> Dict[str, A
 
     try:
         llm = get_evaluator_llm()
-        response = llm.invoke([HumanMessage(content=evaluator_prompt)])
+        response = invoke_with_retry(llm, [HumanMessage(content=evaluator_prompt)])
         result = extract_json_from_response(response.content)
 
         precision = float(result.get("precision", 0.0))
@@ -226,7 +263,7 @@ def evaluate_clarity(question: str, answer: str, reference: str) -> Dict[str, An
 
     try:
         llm = get_evaluator_llm()
-        response = llm.invoke([HumanMessage(content=evaluator_prompt)])
+        response = invoke_with_retry(llm, [HumanMessage(content=evaluator_prompt)])
         result = extract_json_from_response(response.content)
 
         score = float(result.get("score", 0.0))
@@ -313,7 +350,7 @@ def evaluate_precision(question: str, answer: str, reference: str) -> Dict[str, 
 
     try:
         llm = get_evaluator_llm()
-        response = llm.invoke([HumanMessage(content=evaluator_prompt)])
+        response = invoke_with_retry(llm, [HumanMessage(content=evaluator_prompt)])
         result = extract_json_from_response(response.content)
 
         score = float(result.get("score", 0.0))
@@ -398,7 +435,7 @@ def evaluate_tone_score(bug_report: str, user_story: str, reference: str) -> Dic
 
     try:
         llm = get_evaluator_llm()
-        response = llm.invoke([HumanMessage(content=evaluator_prompt)])
+        response = invoke_with_retry(llm, [HumanMessage(content=evaluator_prompt)])
         result = extract_json_from_response(response.content)
 
         score = float(result.get("score", 0.0))
@@ -486,7 +523,7 @@ def evaluate_acceptance_criteria_score(bug_report: str, user_story: str, referen
 
     try:
         llm = get_evaluator_llm()
-        response = llm.invoke([HumanMessage(content=evaluator_prompt)])
+        response = invoke_with_retry(llm, [HumanMessage(content=evaluator_prompt)])
         result = extract_json_from_response(response.content)
 
         score = float(result.get("score", 0.0))
@@ -576,7 +613,7 @@ def evaluate_user_story_format_score(bug_report: str, user_story: str, reference
 
     try:
         llm = get_evaluator_llm()
-        response = llm.invoke([HumanMessage(content=evaluator_prompt)])
+        response = invoke_with_retry(llm, [HumanMessage(content=evaluator_prompt)])
         result = extract_json_from_response(response.content)
 
         score = float(result.get("score", 0.0))
@@ -676,7 +713,7 @@ def evaluate_completeness_score(bug_report: str, user_story: str, reference: str
 
     try:
         llm = get_evaluator_llm()
-        response = llm.invoke([HumanMessage(content=evaluator_prompt)])
+        response = invoke_with_retry(llm, [HumanMessage(content=evaluator_prompt)])
         result = extract_json_from_response(response.content)
 
         score = float(result.get("score", 0.0))
