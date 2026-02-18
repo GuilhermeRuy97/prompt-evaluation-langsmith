@@ -147,16 +147,26 @@ def validate_prompt_structure(prompt_data: Dict[str, Any]) -> tuple[bool, list]:
     return (len(errors) == 0, errors)
 
 
-def extract_json_from_response(response_text: str) -> Optional[Dict[str, Any]]:
+def extract_json_from_response(response_text) -> Optional[Dict[str, Any]]:
     """
     Extracts JSON from an LLM response that may contain additional text.
+    Handles both str and list[dict] content formats (langchain-google-genai 4.x).
 
     Args:
-        response_text: LLM response text
+        response_text: LLM response text (str or list of content parts)
 
     Returns:
         Extracted dictionary or None if no valid JSON found
     """
+    if isinstance(response_text, list):
+        response_text = "".join(
+            part.get("text", "") if isinstance(part, dict) else str(part)
+            for part in response_text
+        )
+
+    if not isinstance(response_text, str):
+        response_text = str(response_text)
+
     try:
         return json.loads(response_text)
     except json.JSONDecodeError:
@@ -165,15 +175,14 @@ def extract_json_from_response(response_text: str) -> Optional[Dict[str, Any]]:
 
         if start != -1 and end > start:
             try:
-                json_str = response_text[start:end]
-                return json.loads(json_str)
+                return json.loads(response_text[start:end])
             except json.JSONDecodeError:
                 pass
 
     return None
 
 
-def get_llm(model: Optional[str] = None):
+def get_llm(model: Optional[str] = None, temperature: float = 0.0):
     """
     Returns a configured LLM instance based on the provider.
 
@@ -187,7 +196,7 @@ def get_llm(model: Optional[str] = None):
         ValueError: If provider is not supported or API key is not configured
     """
     provider = os.getenv('LLM_PROVIDER', 'openai').lower()
-    model_name = model or os.getenv('LLM_MODEL', 'gpt-5.2')
+    model_name = model or os.getenv('LLM_MODEL', 'gpt-4o-mini')
 
     if provider == 'openai':
         from langchain_openai import ChatOpenAI
@@ -201,7 +210,8 @@ def get_llm(model: Optional[str] = None):
 
         return ChatOpenAI(
             model=model_name,
-            api_key=api_key
+            api_key=api_key,
+            temperature=0
         )
 
     elif provider == 'google':
@@ -216,7 +226,8 @@ def get_llm(model: Optional[str] = None):
 
         return ChatGoogleGenerativeAI(
             model=model_name,
-            google_api_key=api_key
+            api_key=api_key,
+            temperature=0
         )
 
     else:
@@ -226,7 +237,7 @@ def get_llm(model: Optional[str] = None):
         )
 
 
-def get_eval_llm():
+def get_eval_llm(temperature: float = 0):
     """
     Returns LLM configured specifically for evaluation (uses EVAL_MODEL).
 
@@ -236,5 +247,5 @@ def get_eval_llm():
     Returns:
         LLM instance configured for evaluation
     """
-    eval_model = os.getenv('EVAL_MODEL', 'gpt-5.2')
-    return get_llm(model=eval_model)
+    eval_model = os.getenv('EVAL_MODEL', 'gpt-4o')
+    return get_llm(model=eval_model, temperature=temperature)
