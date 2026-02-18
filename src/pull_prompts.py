@@ -13,7 +13,7 @@ import os
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
-from langchain import hub
+from langsmith import Client
 from utils import save_yaml, check_env_vars, print_section_header
 
 load_dotenv()
@@ -35,7 +35,8 @@ def pull_prompts_from_langsmith():
 
     try:
         # Pull prompt from LangSmith Hub
-        prompt = hub.pull(prompt_identifier)
+        client = Client()
+        prompt = client.pull_prompt(prompt_identifier)
 
         # Extract the system prompt
         system_prompt = prompt.messages[0].prompt.template
