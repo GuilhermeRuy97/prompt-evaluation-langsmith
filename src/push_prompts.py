@@ -13,7 +13,7 @@
 import os
 import sys
 from dotenv import load_dotenv
-from langchain import hub
+from langsmith import Client
 from langchain_core.prompts import ChatPromptTemplate
 from utils import load_yaml, check_env_vars, print_section_header, validate_prompt_structure
 
@@ -60,11 +60,12 @@ def push_prompt_to_langsmith(prompt_name: str, prompt_data: dict) -> bool:
         
         # Push to Hub
         # new_repo_is_public=True ensures it's accessible
-        url = hub.push(
+        client = Client()
+        url = client.push_prompt(
             repo_handle,
-            prompt,
-            new_repo_is_public=True,
-            new_repo_description=description,
+            object=prompt,
+            is_public=True,
+            description=description,
             tags=tags
         )
 
