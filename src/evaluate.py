@@ -20,11 +20,11 @@
 import os
 import sys
 import json
+import time
 from typing import List, Dict, Any
 from pathlib import Path
 from dotenv import load_dotenv
 from langsmith import Client
-from langchain import hub
 from langchain_core.prompts import ChatPromptTemplate
 from utils import check_env_vars, format_score, print_section_header, get_llm as get_configured_llm
 from metrics import evaluate_f1_score, evaluate_clarity, evaluate_precision
@@ -33,7 +33,7 @@ load_dotenv()
 
 
 def get_llm():
-    return get_configured_llm()
+    return get_configured_llm(temperature=0)
 
 
 def load_dataset_from_jsonl(jsonl_path: str) -> List[Dict[str, Any]]:
@@ -105,7 +105,8 @@ def create_evaluation_dataset(client: Client, dataset_name: str, jsonl_path: str
 def pull_prompt_from_langsmith(prompt_name: str) -> ChatPromptTemplate:
     try:
         print(f"   Pulling prompt from LangSmith Hub: {prompt_name}")
-        prompt = hub.pull(prompt_name)
+        client = Client()
+        prompt = client.pull_prompt(prompt_name)
         print(f"   Prompt loaded successfully")
         return prompt
 
@@ -143,39 +144,39 @@ def pull_prompt_from_langsmith(prompt_name: str) -> ChatPromptTemplate:
 def evaluate_prompt_on_example(
     prompt_template: ChatPromptTemplate,
     example: Any,
-    llm: Any
+    llm: Any,
+    max_retries: int = 5,
+    retry_delay: float = 60.0
 ) -> Dict[str, Any]:
-    try:
-        inputs = example.inputs if hasattr(example, 'inputs') else {}
-        outputs = example.outputs if hasattr(example, 'outputs') else {}
+    inputs = example.inputs if hasattr(example, 'inputs') else {}
+    outputs = example.outputs if hasattr(example, 'outputs') else {}
 
-        chain = prompt_template | llm
+    if isinstance(inputs, dict):
+        question = inputs.get("question", inputs.get("bug_report", inputs.get("pr_title", "N/A")))
+    else:
+        question = "N/A"
 
-        response = chain.invoke(inputs)
-        answer = response.content
+    chain = prompt_template | llm
 
-        reference = outputs.get("reference", "") if isinstance(outputs, dict) else ""
-
-        if isinstance(inputs, dict):
-            question = inputs.get("question", inputs.get("bug_report", inputs.get("pr_title", "N/A")))
-        else:
-            question = "N/A"
-
-        return {
-            "answer": answer,
-            "reference": reference,
-            "question": question
-        }
-
-    except Exception as e:
-        print(f"Error evaluating example: {e}")
-        import traceback
-        print(f"Traceback: {traceback.format_exc()}")
-        return {
-            "answer": "",
-            "reference": "",
-            "question": ""
-        }
+    for attempt in range(1, max_retries + 1):
+        try:
+            response = chain.invoke(inputs)
+            return {
+                "answer": response.content,
+                "reference": outputs.get("reference", "") if isinstance(outputs, dict) else "",
+                "question": question
+            }
+        except Exception as e:
+            is_retryable = any(code in str(e) for code in ["503", "429", "UNAVAILABLE", "Resource has been exhausted"])
+            if is_retryable and attempt < max_retries:
+                wait = retry_delay * attempt
+                print(f"   Attempt {attempt}/{max_retries} failed (retryable). Waiting {wait:.0f}s before retry...")
+                time.sleep(wait)
+            else:
+                print(f"Error evaluating example: {e}")
+                import traceback
+                print(f"Traceback: {traceback.format_exc()}")
+                return {"answer": "", "reference": "", "question": question}
 
 
 def evaluate_prompt(
@@ -185,58 +186,92 @@ def evaluate_prompt(
 ) -> Dict[str, float]:
     print(f"\nEvaluating: {prompt_name}")
 
-    try:
-        prompt_template = pull_prompt_from_langsmith(prompt_name)
+    prompt_template = pull_prompt_from_langsmith(prompt_name)
+    llm = get_llm()
 
-        examples = list(client.list_examples(dataset_name=dataset_name))
-        print(f"   Dataset: {len(examples)} examples")
+    # target function receives each example's inputs and returns the model output
+    # retry logic mirrors evaluate_prompt_on_example for 503/429 transient errors
+    def target(inputs: dict) -> dict:
+        chain = prompt_template | llm
+        max_retries, retry_delay = 5, 60.0
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = chain.invoke(inputs)
+                content = response.content
+                if isinstance(content, list):
+                    content = "".join(
+                        p.get("text", "") if isinstance(p, dict) else str(p) for p in content
+                    )
+                return {"output": content}
+            except Exception as e:
+                is_retryable = any(code in str(e) for code in ["503", "429", "UNAVAILABLE", "Resource has been exhausted"])
+                if is_retryable and attempt < max_retries:
+                    wait = retry_delay * attempt
+                    print(f"   target attempt {attempt}/{max_retries} failed. Waiting {wait:.0f}s...")
+                    time.sleep(wait)
+                else:
+                    raise
+        return {"output": ""}
 
-        llm = get_llm()
+    # evaluator wrappers expected by client.evaluate(): receive (outputs, reference_outputs)
+    def evaluator_f1(outputs: dict, reference_outputs: dict) -> dict:
+        answer = outputs.get("output", "")
+        reference = reference_outputs.get("reference", "")
+        result = evaluate_f1_score("", answer, reference)
+        return {"key": "f1_score", "score": result["score"], "comment": result.get("reasoning", "")}
 
-        f1_scores = []
-        clarity_scores = []
-        precision_scores = []
+    def evaluator_clarity(outputs: dict, reference_outputs: dict) -> dict:
+        answer = outputs.get("output", "")
+        reference = reference_outputs.get("reference", "")
+        result = evaluate_clarity("", answer, reference)
+        return {"key": "clarity", "score": result["score"], "comment": result.get("reasoning", "")}
 
-        print("   Evaluating examples...")
+    def evaluator_precision(outputs: dict, reference_outputs: dict) -> dict:
+        answer = outputs.get("output", "")
+        reference = reference_outputs.get("reference", "")
+        result = evaluate_precision("", answer, reference)
+        return {"key": "precision", "score": result["score"], "comment": result.get("reasoning", "")}
 
-        for i, example in enumerate(examples[:10], 1):
-            result = evaluate_prompt_on_example(prompt_template, example, llm)
+    # Limit to first 10 examples to control cost
+    examples = list(client.list_examples(dataset_name=dataset_name))[:10]
+    print(f"   Dataset: {len(examples)} examples (limited to 10)")
+    print("   Evaluating examples...")
 
-            if result["answer"]:
-                f1 = evaluate_f1_score(result["question"], result["answer"], result["reference"])
-                clarity = evaluate_clarity(result["question"], result["answer"], result["reference"])
-                precision = evaluate_precision(result["question"], result["answer"], result["reference"])
+    experiment_results = client.evaluate(
+        target,
+        data=examples,
+        evaluators=[evaluator_f1, evaluator_clarity, evaluator_precision],
+        experiment_prefix=prompt_name.replace("/", "--"),
+        max_concurrency=1,
+        num_repetitions=1,
+    )
 
-                f1_scores.append(f1["score"])
-                clarity_scores.append(clarity["score"])
-                precision_scores.append(precision["score"])
+    # ExperimentResultRow is TypedDict — access via ["key"]
+    # EvaluationResult is Pydantic — access via .key and .score
+    f1_scores, clarity_scores, precision_scores = [], [], []
 
-                print(f"      [{i}/{min(10, len(examples))}] F1:{f1['score']:.2f} Clarity:{clarity['score']:.2f} Precision:{precision['score']:.2f}")
+    for i, result in enumerate(experiment_results, 1):
+        eval_results = (result.get("evaluation_results") or {}).get("results") or []
+        row = {r.key: r.score for r in eval_results if r.score is not None}
+        f1_scores.append(row.get("f1_score", 0.0))
+        clarity_scores.append(row.get("clarity", 0.0))
+        precision_scores.append(row.get("precision", 0.0))
+        print(f"      [{i}/10] F1:{row.get('f1_score', 0):.2f} Clarity:{row.get('clarity', 0):.2f} Precision:{row.get('precision', 0):.2f}")
 
-        avg_f1 = sum(f1_scores) / len(f1_scores) if f1_scores else 0.0
-        avg_clarity = sum(clarity_scores) / len(clarity_scores) if clarity_scores else 0.0
-        avg_precision = sum(precision_scores) / len(precision_scores) if precision_scores else 0.0
+    avg_f1 = sum(f1_scores) / len(f1_scores) if f1_scores else 0.0
+    avg_clarity = sum(clarity_scores) / len(clarity_scores) if clarity_scores else 0.0
+    avg_precision = sum(precision_scores) / len(precision_scores) if precision_scores else 0.0
 
-        avg_helpfulness = (avg_clarity + avg_precision) / 2
-        avg_correctness = (avg_f1 + avg_precision) / 2
+    avg_helpfulness = (avg_clarity + avg_precision) / 2
+    avg_correctness = (avg_f1 + avg_precision) / 2
 
-        return {
-            "helpfulness": round(avg_helpfulness, 4),
-            "correctness": round(avg_correctness, 4),
-            "f1_score": round(avg_f1, 4),
-            "clarity": round(avg_clarity, 4),
-            "precision": round(avg_precision, 4)
-        }
-
-    except Exception as e:
-        print(f"Error in evaluation: {e}")
-        return {
-            "helpfulness": 0.0,
-            "correctness": 0.0,
-            "f1_score": 0.0,
-            "clarity": 0.0,
-            "precision": 0.0
-        }
+    return {
+        "helpfulness": round(avg_helpfulness, 4),
+        "correctness": round(avg_correctness, 4),
+        "f1_score": round(avg_f1, 4),
+        "clarity": round(avg_clarity, 4),
+        "precision": round(avg_precision, 4)
+    }
 
 
 def display_results(prompt_name: str, scores: Dict[str, float]) -> bool:
@@ -291,7 +326,7 @@ def main():
         return 1
 
     client = Client()
-    project_name = os.getenv("LANGCHAIN_PROJECT", "prompt-optimization-challenge-resolved")
+    project_name = os.getenv("LANGSMITH_PROJECT", os.getenv("LANGCHAIN_PROJECT", "prompt-optimization-challenge-resolved"))
 
     jsonl_path = "datasets/bug_to_user_story.jsonl"
 
