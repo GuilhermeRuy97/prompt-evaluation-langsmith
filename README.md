@@ -211,17 +211,17 @@ desafio-prompt-engineer/
 
 ## Assets
 
-LangSmith Experiment Sample:
-* ![Experiment Sample](./assets/experiment_sample.png) 
+* **LangSmith Experiment Sample:**
+![Experiment Sample](./assets/experiment_sample.png) 
 
-LangSmith Experiment Metrics Summary:
-* ![Experiment Summary](./assets/experiment_summary.png)
+* **LangSmith Experiment Metrics Summary:**
+![Experiment Summary](./assets/experiment_summary.png)
 
-Terminal Output of the evaluation script:
-* ![Terminal Output](./assets/terminal_output.png)
+* **Terminal Output of the evaluation script:**
+![Terminal Output](./assets/terminal_output.png)
 
-Test Failure Example:
-* ![Test Failure Example](./assets/test_fail_example.png)
+* **Test Failure Example:**
+![Test Failure Example](./assets/test_fail_example.png)
 
-LangSmith Tracing Sample:
-* ![Tracing Sample](./assets/tracing_sample.png)
+* **LangSmith Tracing Sample:**
+![Tracing Sample](./assets/tracing_sample_output.png)
