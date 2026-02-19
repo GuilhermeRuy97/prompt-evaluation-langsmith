@@ -78,7 +78,7 @@ pytest==8.3.4
 
 ---
 
-## OpenAI
+## Google Gemini
 
 - **LLM Model for responses**: `gemini-3-pro-preview`
 - **LLM Model for evaluation**: `gemini-3-pro-preview`
