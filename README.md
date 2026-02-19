@@ -211,17 +211,19 @@ desafio-prompt-engineer/
 
 ## Assets
 
-* **LangSmith Experiment Sample:**
-![Experiment Sample](./assets/experiment_sample.png) 
+* **Experiment URL**:<br><br>https://smith.langchain.com/o/ad17930f-8849-480c-afd6-b9b5d495cb28/datasets/d9679b11-aca8-4dc6-9705-15971e237325/compare?selectedSessions=29f8f3eb-125a-4cf8-bac2-041f7e4eff6d<br>
 
-* **LangSmith Experiment Metrics Summary:**
-![Experiment Summary](./assets/experiment_summary.png)
+* **LangSmith Experiment Sample:**<br><br>
+![Experiment Sample](./assets/experiment_sample.png) <br>
 
-* **Terminal Output of the evaluation script:**
-![Terminal Output](./assets/terminal_output.png)
+* **LangSmith Experiment Metrics Summary:**<br><br>
+![Experiment Summary](./assets/experiment_summary.png)<br>
 
-* **Test Failure Example:**
-![Test Failure Example](./assets/test_fail_example.png)
+* **Terminal Output of the evaluation script:**<br><br>
+![Terminal Output](./assets/terminal_output.png)<br>
 
-* **LangSmith Tracing Sample:**
-![Tracing Sample](./assets/tracing_sample_output.png)
+* **Test Failure Example:**<br><br>
+![Test Failure Example](./assets/test_fail_example.png)<br>
+
+* **LangSmith Tracing Sample:**<br><br>
+![Tracing Sample](./assets/tracing_sample_output.png)<br>
