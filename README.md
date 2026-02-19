@@ -89,12 +89,6 @@ Reason: High reasoning power and context awareness. Great for evaluability.
 
 ## Requirements
 
-### 1. Pull Initial Prompt from LangSmith
-
-The base repository already contains **low-quality** prompts published on LangSmith Prompt Hub. Your first task is to create code capable of pulling these prompts to your local environment.
-
-# Steps to Reproduce:
-
 ### 0. Create VirtualEnv for Python
 
 Create and activate a virtual environment before installing dependencies:
@@ -104,6 +98,13 @@ python3 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
+### 1. Pull Initial Prompt from LangSmith
+
+The base repository already contains **low-quality** prompts published on LangSmith Prompt Hub. Your first task is to create code capable of pulling these prompts to your local environment.
+
+---
+
+## Steps to Reproduce:
 
 ### 1. Configure LangSmith Credentials
 
@@ -115,7 +116,6 @@ pip install -r requirements.txt
    - Saves the prompts locally in `prompts/bug_to_user_story_v1.yml`
    - Test `src/evaluate.py` with the initial prompt.
 
----
 
 ### 2. Prompt Optimization
 
@@ -127,7 +127,6 @@ Now we have the initial prompt, we refactor it using prompt techniques and save 
 - Role Prompting: Define persona and context
 - Avoiding Data Leakage: Do not include any training data in the prompt.
 
----
 
 ### 3. Push and Evaluation
 
@@ -143,7 +142,6 @@ After refactoring the prompts, we must send them back to LangSmith Prompt Hub.
 2. Execute the script and verify on LangSmith dashboard if prompts were published:
    - @`https://smith.langchain.com/hub/data-ruy/bug_to_user_story_v4`
 
----
 
 #### Approval Criteria:
 
@@ -213,9 +211,17 @@ desafio-prompt-engineer/
 
 ## Assets
 
-* [Experiment Sample](./assets/experiment_sample.png) --> LangSmith Experiment Sample
-* [Experiment Summary](./assets/experiment_summary.png) --> LangSmith Experiment Metrics Summary
-* [Terminal Output](./assets/terminal_output.png) --> Terminal Output of the evaluation script
-* [Test Failure Example](./assets/test_fail_example.png) --> Test Failure Example
-* [Tracing Sample](./assets/tracing_sample.png) --> LangSmith Tracing Sample
----
+LangSmith Experiment Sample:
+* ![Experiment Sample](./assets/experiment_sample.png) 
+
+LangSmith Experiment Metrics Summary:
+* ![Experiment Summary](./assets/experiment_summary.png)
+
+Terminal Output of the evaluation script:
+* ![Terminal Output](./assets/terminal_output.png)
+
+Test Failure Example:
+* ![Test Failure Example](./assets/test_fail_example.png)
+
+LangSmith Tracing Sample:
+* ![Tracing Sample](./assets/tracing_sample.png)
